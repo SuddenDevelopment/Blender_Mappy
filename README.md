@@ -1,3 +1,5 @@
+
+Im not ready to make a paid product yet, but if you want to help cover my cost of buying other peoples addons it would be appreciated :) 
 <span class="badge-patreon">
 <a href="https://www.patreon.com/anthonyaragues" title="Donate to this project using Patreon"><img src="https://img.shields.io/badge/patreon-donate-yellow.svg" alt="Patreon donate button" /></a>
 </span>
