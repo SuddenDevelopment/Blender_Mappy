@@ -18,66 +18,78 @@ class MappyOp(bpy.types.Operator):
     
     #this is the operator function that will be called on button press
     def execute(self, context):
-        #default camera before finding the fspy one
-        objCamera = bpy.data.cameras[0]
-        #default blank image before finding the fspy one
-        objImage = type('', (), {})()
-        #default ratio before the image is foudn to calc from
-        intRatioX = 1
-        intRatioY = 1
+        arrPerspectives=[]
         
         #Find the fspy camera that was imported by the fspy import plugin
-        for obj in bpy.data.cameras:            
-            for obj2 in obj.background_images:
-                if obj2.source == 'IMAGE' and obj2.image and obj2.image.name and "fspy" in obj2.image.name:
-                    objCamera = obj
-                    objImage = obj2.image
+        for objCamera in bpy.data.cameras:            
+            self.report({'INFO'}, "fspy camera found: " + objCamera.name)
+            for objImage in objCamera.background_images:
+                if objImage.source == 'IMAGE' and objImage.image and objImage.image.name and "fspy" in objImage.image.name:
+                    objPerspective={'camera':{}, 'image':{}, 'ratioX':1, 'ratioY':1, 'material':{} }
+                    objPerspective['camera']=objCamera
+                    objPerspective['image']=objImage.image
                     self.report({'INFO'}, "fspy camera found: " + objCamera.name)
                     # use the image from the camera as the projection image
-                    intX = bpy.data.images[obj2.image.name].size[0]
-                    intY = bpy.data.images[obj2.image.name].size[1]
+                    intX = bpy.data.images[objPerspective['image'].name].size[0]
+                    intY = bpy.data.images[objPerspective['image'].name].size[1]
                     #calc the ratio for the camera uv project
                     if intX > intY:
-                        intRatioX = intX/intY
+                        objPerspective['ratioX'] = intX/intY
                     else:
-                        intRatioY = intY/intX 
-                    self.report({'INFO'}, "fspy image found: " + obj2.image.name + " " + str(intX) + "," + str(intY))
-                    self.report({'INFO'}, "ratio: " + str(intRatioX) + "," + str(intRatioY))
+                        objPerspective['ratioY'] = intY/intX 
+                    self.report({'INFO'}, "fspy image found: " + objPerspective['image'].name + " " + str(intX) + "," + str(intY))
+                    self.report({'INFO'}, "ratio: " + str(objPerspective['ratioX']) + "," + str(objPerspective['ratioY']))
+                    #add the perspective to the collection
+                    arrPerspectives.append(objPerspective)
                     break
         
-        # Get material if it exists, it shouldn't
-        mat = bpy.data.materials.get("mappy_texture")
-        if mat is None:
-            # create material
-            mat = bpy.data.materials.new(name="mappy_texture")
-            mat.use_nodes = True
-            mat.node_tree.nodes.remove( mat.node_tree.nodes['Principled BSDF'])
-            nodeLinks = mat.node_tree.links
-            nodeEmission = mat.node_tree.nodes.new(type='ShaderNodeEmission')
-            nodeTexture = mat.node_tree.nodes.new(type='ShaderNodeTexImage')
-            nodeTexture.image = objImage
-            nodeOutput = mat.node_tree.nodes['Material Output']
-            nodeLinks.new(nodeEmission.outputs[0], nodeOutput.inputs[0])
-            nodeLinks.new(nodeTexture.outputs[0], nodeEmission.inputs[0])
-        
+        # create the material to match each perspective
+        for intIndex,objPerspective in enumerate(arrPerspectives):
+            # does it already exist for some reason? it shouldn't, doesnt hurt to check first
+            objMaterial = bpy.data.materials.get(objPerspective['image'].name+"_texture")
+            if objMaterial is None:
+                # create material
+                objMaterial = bpy.data.materials.new(name=objPerspective['image'].name+"_texture")
+                objMaterial.use_nodes = True
+                objMaterial.node_tree.nodes.remove( objMaterial.node_tree.nodes['Principled BSDF'])
+                nodeLinks = objMaterial.node_tree.links
+                nodeEmission = objMaterial.node_tree.nodes.new(type='ShaderNodeEmission')
+                nodeTexture = objMaterial.node_tree.nodes.new(type='ShaderNodeTexImage')
+                nodeTexture.image = objPerspective['image']
+                nodeOutput = objMaterial.node_tree.nodes['Material Output']
+                nodeLinks.new(nodeEmission.outputs[0], nodeOutput.inputs[0])
+                nodeLinks.new(nodeTexture.outputs[0], nodeEmission.inputs[0])
+            arrPerspectives[intIndex]['material']=objMaterial
+
+        #per selected object operations
         for obj in bpy.context.selected_objects:
             self.report({'INFO'}, "applying fspy settings to object: " + obj.name)
             objTarget = bpy.data.objects[obj.name]
-            objTarget.modifiers.new("mappy_subsurf",type='SUBSURF')
-            objTarget.modifiers["mappy_subsurf"].subdivision_type = 'SIMPLE'
-            
-            objTarget.modifiers.new("mappy_project",type='UV_PROJECT')
-            objTarget.modifiers["mappy_project"].aspect_x = intRatioX
-            objTarget.modifiers["mappy_project"].aspect_y = intRatioY
-            # this assumes the projector image name is the same as the same as the projector image name
-            objTarget.modifiers["mappy_project"].projectors[0].object = bpy.data.objects[objImage.name]
-            # Assign material to object
-            if objTarget.data.materials:
-                # assign to 1st material slot
-                objTarget.data.materials[0] = mat
-            else:
-                # no slots
-                objTarget.data.materials.append(mat)
+            # add the subrface modifier
+            objModifier=objTarget.modifiers.get("mappy_subsurf")
+            if objModifier is None:
+                objTarget.modifiers.new("mappy_subsurf",type='SUBSURF')
+                objTarget.modifiers["mappy_subsurf"].subdivision_type = 'SIMPLE'
+            # per perspective
+            for objPerspective in arrPerspectives:
+                objModifier=objTarget.modifiers.get(objPerspective['image'].name+"_project")
+                if objModifier is None:
+                    # add the uv project modifier per object + perspective
+                    objTarget.modifiers.new(objPerspective['image'].name+"_project",type='UV_PROJECT')
+                    # add the ratio settings per projector
+                    objTarget.modifiers[objPerspective['image'].name+"_project"].aspect_x = objPerspective['ratioX']
+                    objTarget.modifiers[objPerspective['image'].name+"_project"].aspect_y = objPerspective['ratioY']
+                    # set uv projection image
+                    objTarget.modifiers[objPerspective['image'].name+"_project"].projectors[0].object = bpy.data.objects[objPerspective['image'].name]
+                #create the material slots
+                self.report({'INFO'}, "applying material" + str(objPerspective['material'].name) + "to: " + objTarget.name )
+                # Assign material to object
+                if objTarget.data.materials:
+                    # assign to 1st material slot
+                    objTarget.data.materials[0] = objPerspective['material']
+                else:
+                    # no slots
+                    objTarget.data.materials.append(objPerspective['material'])
         return {"FINISHED"}
 
 
