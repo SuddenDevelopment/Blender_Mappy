@@ -10,6 +10,13 @@ Automates the Blender side of a FSpy workflow for all selected objects
 
 short demo: https://youtu.be/dEeIGHfGSZ0
 
+# fspy + geometry
+![Image of Yaktocat](./before.jpg)
+
+# one button click map everything
+
+![Image of Yaktocat](./after.jpg)
+
 fspy can be found at : https://fspy.io/
 there are lots of good tutorials on how to use it with Blender, here's one: https://www.youtube.com/watch?v=p9IfDeNU8K0
 but they only make one object to map a texture too, when I made several objects the workflow got tedious. So I spent 2 days automating what might take 2 minutes to do :)
