@@ -65,31 +65,37 @@ class MappyOp(bpy.types.Operator):
         for obj in bpy.context.selected_objects:
             self.report({'INFO'}, "applying fspy settings to object: " + obj.name)
             objTarget = bpy.data.objects[obj.name]
-            # add the subrface modifier
-            objModifier=objTarget.modifiers.get("mappy_subsurf")
-            if objModifier is None:
-                objTarget.modifiers.new("mappy_subsurf",type='SUBSURF')
-                objTarget.modifiers["mappy_subsurf"].subdivision_type = 'SIMPLE'
-            # per perspective
-            for objPerspective in arrPerspectives:
-                objModifier=objTarget.modifiers.get(objPerspective['image'].name+"_project")
+            #just in case non meshes are also selected
+            if objTarget.type == 'Mesh':
+                # add the subrface modifier
+                objModifier=objTarget.modifiers.get("mappy_subsurf")
                 if objModifier is None:
-                    # add the uv project modifier per object + perspective
-                    objTarget.modifiers.new(objPerspective['image'].name+"_project",type='UV_PROJECT')
-                    # add the ratio settings per projector
-                    objTarget.modifiers[objPerspective['image'].name+"_project"].aspect_x = objPerspective['ratioX']
-                    objTarget.modifiers[objPerspective['image'].name+"_project"].aspect_y = objPerspective['ratioY']
-                    # set uv projection image
-                    objTarget.modifiers[objPerspective['image'].name+"_project"].projectors[0].object = bpy.data.objects[objPerspective['image'].name]
-                #create the material slots
-                self.report({'INFO'}, "applying material" + str(objPerspective['material'].name) + "to: " + objTarget.name )
-                # Assign material to object
-                if objTarget.data.materials:
-                    # assign to 1st material slot
-                    objTarget.data.materials[0] = objPerspective['material']
-                else:
-                    # no slots
-                    objTarget.data.materials.append(objPerspective['material'])
+                    objTarget.modifiers.new("mappy_subsurf",type='SUBSURF')
+                    objTarget.modifiers["mappy_subsurf"].subdivision_type = 'SIMPLE'
+                # per perspective
+                for objPerspective in arrPerspectives:
+                    objModifier=objTarget.modifiers.get(objPerspective['image'].name+"_project")
+                    if objModifier is None:
+                        # add the uv project modifier per object + perspective
+                        objTarget.modifiers.new(objPerspective['image'].name+"_project",type='UV_PROJECT')
+                        # add the ratio settings per projector
+                        objTarget.modifiers[objPerspective['image'].name+"_project"].aspect_x = objPerspective['ratioX']
+                        objTarget.modifiers[objPerspective['image'].name+"_project"].aspect_y = objPerspective['ratioY']
+                        # set uv projection image
+                        objTarget.modifiers[objPerspective['image'].name+"_project"].projectors[0].object = bpy.data.objects[objPerspective['image'].name]
+                    #create the material slots
+                    self.report({'INFO'}, "applying material" + str(objPerspective['material'].name) + "to: " + objTarget.name )
+                    # Assign material to object
+                    # bpy.ops.object.material_slot_add()
+                    # bpy.ops.object.material_slot_assign()
+                    # for objPolygon in objTarget.data.polygons:
+                        
+                    if objTarget.data.materials:
+                        # assign to 1st material slot
+                        objTarget.data.materials[0] = objPerspective['material']
+                    else:
+                        # no slots
+                        objTarget.data.materials.append(objPerspective['material'])
         return {"FINISHED"}
 
 
