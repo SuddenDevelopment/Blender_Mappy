@@ -11,7 +11,9 @@ bl_info = {
 }
 
 import bpy
+from bpy.props import BoolProperty, FloatProperty
 from mathutils import Vector
+from mathutils.geometry import intersect_ray_tri
 
 class MappyOp(bpy.types.Operator):
     bl_idname = 'mappy.go'
@@ -66,6 +68,7 @@ class MappyOp(bpy.types.Operator):
         for obj in bpy.context.selected_objects:
             self.report({'INFO'}, "applying fspy settings to object: " + obj.name)
             objTarget = bpy.data.objects[obj.name]
+            objPolyCalcs = []
             #just in case non meshes are also selected
             #self.report({'INFO'}, objTarget.type)
             if objTarget.type == 'MESH':
@@ -75,7 +78,9 @@ class MappyOp(bpy.types.Operator):
                     objTarget.modifiers.new("mappy_subsurf",type='SUBSURF')
                     objTarget.modifiers["mappy_subsurf"].subdivision_type = 'SIMPLE'
                 # per perspective
+                arrPolyCalcs=[]
                 for intPerspective,objPerspective in enumerate(arrPerspectives):
+                    arrPolyCalcs.append({"polys":[]})
                     # TIL I want multiple projectors in 1 modifier not 3 modifiers
                     objModifier=objTarget.modifiers.get("mappy_project")
                     if objModifier is None:
@@ -93,14 +98,14 @@ class MappyOp(bpy.types.Operator):
                         
                     #create the material slots
                     self.report({'INFO'}, "applying material" + str(objPerspective['material'].name) + "to: " + objTarget.name )
-                    # Assign material to object
-                    # bpy.ops.object.material_slot_add()
-                    # bpy.ops.object.material_slot_assign()
-                    # 
-                    
                     # loop through points in polygons + cameras to determine which camera is facing most directly, least shear, assign texture from that cameras projection
                     objCamera=bpy.data.objects[objPerspective['image'].name]
-                    for objPolygon in objTarget.data.polygons:
+                    if len(objTarget.data.materials) <= intPerspective:
+                        objTarget.data.materials.append(objPerspective['material'])
+                    else:
+                        objTarget.data.materials[intPerspective]=objPerspective['material']
+                    
+                    for intPoly,objPolygon in enumerate(objTarget.data.polygons):
                         intMin=None
                         intMax=0
                         intTotal=0
@@ -115,13 +120,15 @@ class MappyOp(bpy.types.Operator):
                                 intMin = intPointDistance2Camera
                             # update the average distance
                             intDistance = intTotal / (intPoint+1)
-                        self.report({'INFO'}, "camera to polygon sheer: "+ str(intMax-intMin) + 'average distance: '+ str(intDistance) )
-                    if objTarget.data.materials:
-                        # assign to 1st material slot
-                        objTarget.data.materials[0] = objPerspective['material']
-                    else:
-                        # no slots
-                        objTarget.data.materials.append(objPerspective['material'])
+                            intSheer = intMax-intMin
+                        #self.report({'INFO'}, "camera:"+ objPerspective['image'].name +" to polygon sheer: "+ str(intSheer) + 'average distance: '+ str(intDistance) )
+                        arrPolyCalcs[intPerspective]['polys'].append({ "camera":objPerspective['image'].name,"poly":intPoly, "sheer":intSheer,"distance":intDistance})
+                        #make a basic determination on which texture is best to apply to the polygon based on if it's better than previous perspective
+                        if intPerspective == 0:
+                            objPolygon.material_index = intPerspective
+                        elif intMin <= arrPolyCalcs[intPerspective-1]['polys'][intPoly]['distance'] and intSheer <= arrPolyCalcs[intPerspective-1]['polys'][intPoly]['sheer']:
+                            objPolygon.material_index = intPerspective
+                            
         return {"FINISHED"}
 
 
@@ -139,9 +146,9 @@ class MappyPanel(bpy.types.Panel):
         row = layout.row()
         row.label(text="Mappy is intended to be the 3rd step in an FSpy workflow")
         row = layout.row()
-        row.label(text="1. Import an FSpy project with the fspy import addon")
+        row.label(text="1. Import FSpy projects with the fspy import addon")
         row = layout.row()
-        row.label(text="2. Model your objects to fit the image")
+        row.label(text="2. Model your objects to fit the images")
         row = layout.row()
         row.label(text="3. Use this addon to project / taxture map onto the selected objects")
         layout.operator("mappy.go",text = 'Map fspy image to all selected')
