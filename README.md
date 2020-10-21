@@ -9,6 +9,7 @@ Im not ready to make a paid product yet, but if you want to help cover my cost o
 Automates the Blender side of a FSpy workflow for all selected objects
 
 short demo: https://youtu.be/dEeIGHfGSZ0
+update for 2.0 https://www.youtube.com/watch?v=Ull-7OjHAzA&t=11s
 
 # fspy + geometry
 ![Image of Yaktocat](./before.jpg)
