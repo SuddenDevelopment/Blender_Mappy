@@ -1,142 +1,142 @@
 bl_info = {
-    "name": "Mappy for FSpy",
+    "name": "Match Area Light",
     "author": "Anthony Aragues",
-    "version": (1, 0),
-    "blender": (2, 80, 0),
-    "location": "n > Mappy > Mesh > New Object",
-    "description": "Automates the Blender side of a FSpy workflow for all selected objects",
+    "version": (1, 2),
+    "blender": (2, 90, 0),
+    "location": "n > Lights",
+    "description": "Rapidly create area lights to match size and orientation of selected faces",
     "warning": "",
     "doc_url": "",
-    "category": "Object",
+    "category": "Lighting",
 }
 
-import bpy
-from bpy.props import BoolProperty, FloatProperty
-from mathutils import Vector
-from mathutils.geometry import intersect_ray_tri
+# This example assumes we have a mesh object in edit-mode
 
-class MappyOp(bpy.types.Operator):
-    bl_idname = 'mappy.go'
-    bl_label = 'Map Image to All Selected'
+import bpy, bmesh
+from mathutils import Vector, Matrix
+
+'''
+import bpy
+import bmesh
+context = bpy.context
+
+ob = context.edit_object
+mw = ob.matrix_world
+me = ob.data
+bm = bmesh.from_edit_mesh(me)
+
+faces = [f for f in bm.faces if f.select]
+
+while faces:
+    f = faces.pop()
+    light = bpy.data.lights.new(
+            f"Face{f.index}",
+            type='AREA',
+            )
+    light.size = 1
+    light_ob = bpy.data.objects.new(
+            f"Face{f.index}",
+            light,
+            )
+    M = mw.normalized() @ f.normal.to_track_quat('-Z', 'Y').to_matrix().to_4x4()
+    M.translation = mw @ f.calc_center_median()
+    light_ob.matrix_world = M
+    context.collection.objects.link(light_ob)
+'''
+
+
+def fnGetScale(objFace):
+    intMinX = None
+    intMinY = None
+    intMinZ = None
+    intMaxX = None
+    intMaxY = None
+    intMaxZ = None
+    for objVert in objFace.verts:
+        #coordinates per point per face of selected object
+        arrCo=objVert.co.to_tuple()
+        if intMinX == None or arrCo[0] < intMinX:
+            intMinX=arrCo[0]
+        if intMaxX == None or arrCo[0] > intMaxX:
+            intMaxX=arrCo[0]
+        if intMinY == None or arrCo[1] < intMinY:
+            intMinY=arrCo[1]
+        if intMaxY == None or arrCo[1] > intMaxY:
+            intMaxY=arrCo[1]
+        if intMinZ == None or arrCo[2] < intMinZ:
+            intMinZ=arrCo[2]
+        if intMaxZ == None or arrCo[2] > intMaxZ:
+            intMaxZ=arrCo[2]
+    return {"x":intMaxX-intMinX,"y":intMaxY-intMinY,"z":intMaxZ-intMinZ}
+
+class LightsOp(bpy.types.Operator):
+    bl_idname = 'lights.go'
+    bl_label = 'Map Area Light to All Selected'
     
     #this is the operator function that will be called on button press
     def execute(self, context):
-        arrPerspectives=[]
-        
-        #Find the fspy camera that was imported by the fspy import plugin
-        for objCamera in bpy.data.cameras:            
-            for objImage in objCamera.background_images:
-                if objImage.source == 'IMAGE' and objImage.image and objImage.image.name and "fspy" in objImage.image.name:
-                    self.report({'INFO'}, "fspy camera found: " + objCamera.name)
-                    objPerspective={'camera':{}, 'image':{}, 'ratioX':1, 'ratioY':1, 'material':{} }
-                    objPerspective['camera']=objCamera
-                    objPerspective['image']=objImage.image
-                    #self.report({'INFO'}, "fspy camera found: " + objCamera.name)
-                    # use the image from the camera as the projection image
-                    intX = bpy.data.images[objPerspective['image'].name].size[0]
-                    intY = bpy.data.images[objPerspective['image'].name].size[1]
-                    #calc the ratio for the camera uv project
-                    if intX > intY:
-                        objPerspective['ratioX'] = intX/intY
-                    else:
-                        objPerspective['ratioY'] = intY/intX 
-                    #self.report({'INFO'}, "fspy image found: " + objPerspective['image'].name + " " + str(intX) + "," + str(intY))
-                    #self.report({'INFO'}, "ratio: " + str(objPerspective['ratioX']) + "," + str(objPerspective['ratioY']))
-                    #add the perspective to the collection
-                    arrPerspectives.append(objPerspective)
-                    break
-        
-        # create the material to match each perspective
-        for intIndex,objPerspective in enumerate(arrPerspectives):
-            # does it already exist for some reason? it shouldn't, doesnt hurt to check first
-            objMaterial = bpy.data.materials.get(objPerspective['image'].name+"_texture")
-            if objMaterial is None:
-                # create material
-                objMaterial = bpy.data.materials.new(name=objPerspective['image'].name+"_texture")
-                objMaterial.use_nodes = True
-                objMaterial.node_tree.nodes.remove( objMaterial.node_tree.nodes['Principled BSDF'])
-                nodeLinks = objMaterial.node_tree.links
-                nodeEmission = objMaterial.node_tree.nodes.new(type='ShaderNodeEmission')
-                nodeTexture = objMaterial.node_tree.nodes.new(type='ShaderNodeTexImage')
-                nodeTexture.image = objPerspective['image']
-                nodeOutput = objMaterial.node_tree.nodes['Material Output']
-                nodeLinks.new(nodeEmission.outputs[0], nodeOutput.inputs[0])
-                nodeLinks.new(nodeTexture.outputs[0], nodeEmission.inputs[0])
-            arrPerspectives[intIndex]['material']=objMaterial
 
-        #per selected object operations
-        for obj in bpy.context.selected_objects:
-            self.report({'INFO'}, "applying fspy settings to object: " + obj.name)
-            objTarget = bpy.data.objects[obj.name]
-            objPolyCalcs = []
-            #just in case non meshes are also selected
-            #self.report({'INFO'}, objTarget.type)
-            if objTarget.type == 'MESH':
-                # add the subrface modifier
-                objModifier=objTarget.modifiers.get("mappy_subsurf")
-                if objModifier is None:
-                    objTarget.modifiers.new("mappy_subsurf",type='SUBSURF')
-                    objTarget.modifiers["mappy_subsurf"].subdivision_type = 'SIMPLE'
-                # per perspective
-                arrPolyCalcs=[]
-                for intPerspective,objPerspective in enumerate(arrPerspectives):
-                    arrPolyCalcs.append({"polys":[]})
-                    # TIL I want multiple projectors in 1 modifier not 3 modifiers
-                    objModifier=objTarget.modifiers.get("mappy_project")
-                    if objModifier is None:
-                        # add the uv project modifier per object + perspective
-                        objTarget.modifiers.new("mappy_project",type='UV_PROJECT')
-                        # add the ratio settings per projector
-                        objTarget.modifiers["mappy_project"].aspect_x = objPerspective['ratioX']
-                        objTarget.modifiers["mappy_project"].aspect_y = objPerspective['ratioY']
-                        # set uv projection image
-                        objTarget.modifiers["mappy_project"].projectors[0].object = bpy.data.objects[objPerspective['image'].name]
-                    else:
-                        # add image/perspctives as new projectors in the modifier
-                        objModifier.projector_count = intPerspective + 1
-                        objModifier.projectors[intPerspective].object = bpy.data.objects[objPerspective['image'].name]
-                        
-                    #create the material slots
-                    self.report({'INFO'}, "applying material" + str(objPerspective['material'].name) + "to: " + objTarget.name )
-                    # loop through points in polygons + cameras to determine which camera is facing most directly, least shear, assign texture from that cameras projection
-                    objCamera=bpy.data.objects[objPerspective['image'].name]
-                    if len(objTarget.data.materials) <= intPerspective:
-                        objTarget.data.materials.append(objPerspective['material'])
-                    else:
-                        objTarget.data.materials[intPerspective]=objPerspective['material']
-                    
-                    for intPoly,objPolygon in enumerate(objTarget.data.polygons):
-                        intMin=None
-                        intMax=0
-                        intTotal=0
-                        intDistance=0
-                        for intPoint in objPolygon.vertices:# this only works because the image name is the same as the camer parent object that has the location.
-                            objPoint=objTarget.data.vertices[intPoint]
-                            intPointDistance2Camera=(objCamera.location-objPoint.co).length
-                            intTotal = intPointDistance2Camera+intTotal
-                            if intPointDistance2Camera > intMax:
-                                intMax = intPointDistance2Camera
-                            if intMin == None or intMin < intMin:
-                                intMin = intPointDistance2Camera
-                            # update the average distance
-                            intDistance = intTotal / (intPoint+1)
-                            intSheer = intMax-intMin
-                        #self.report({'INFO'}, "camera:"+ objPerspective['image'].name +" to polygon sheer: "+ str(intSheer) + 'average distance: '+ str(intDistance) )
-                        arrPolyCalcs[intPerspective]['polys'].append({ "camera":objPerspective['image'].name,"poly":intPoly, "sheer":intSheer,"distance":intDistance})
-                        #make a basic determination on which texture is best to apply to the polygon based on if it's better than previous perspective
-                        if intPerspective == 0:
-                            objPolygon.material_index = intPerspective
-                        elif intMin <= arrPolyCalcs[intPerspective-1]['polys'][intPoly]['distance'] and intSheer <= arrPolyCalcs[intPerspective-1]['polys'][intPoly]['sheer']:
-                            objPolygon.material_index = intPerspective
-                            
+        # Get the active mesh
+        obj = context.edit_object
+        bpy.ops.object.editmode_toggle()
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+        bpy.ops.object.editmode_toggle()
+        objMesh = bmesh.from_edit_mesh(obj.data)
+        #create the lights
+        arrLights=[]
+        for objFace in objMesh.faces:
+            if objFace.select == True:
+                objLight={'location':{}, 'direction':{}, 'matrix':{}, 'scale':{'x':0,'y':0,'z':0}}
+                objCenter= objFace.calc_center_median()
+                objLight['location']=objCenter.to_tuple()
+                objLight['direction']=objFace.normal
+                intMinX = None
+                intMinY = None
+                intMinZ = None
+                intMaxX = None
+                intMaxY = None
+                intMaxZ = None
+                for objVert in objFace.verts:
+                    #coordinates per point per face of selected object
+                    arrCo=objVert.co.to_tuple()
+                    if intMinX == None or arrCo[0] < intMinX:
+                        intMinX=arrCo[0]
+                    if intMaxX == None or arrCo[0] > intMaxX:
+                        intMaxX=arrCo[0]
+                    if intMinY == None or arrCo[1] < intMinY:
+                        intMinY=arrCo[1]
+                    if intMaxY == None or arrCo[1] > intMaxY:
+                        intMaxY=arrCo[1]
+                    if intMinZ == None or arrCo[2] < intMinZ:
+                        intMinZ=arrCo[2]
+                    if intMaxZ == None or arrCo[2] > intMaxZ:
+                        intMaxZ=arrCo[2]
+                objLight['scale']['x'] = intMaxX-intMinX
+                objLight['scale']['y'] = intMaxY-intMinY
+                objLight['scale']['z'] = intMaxZ-intMinZ
+                objMatrix=obj.matrix_world.normalized() @ objFace.normal.to_track_quat('-Z', 'Y').to_matrix().to_4x4()
+                objMatrix.translation = obj.matrix_world @ objFace.calc_center_median()
+                objLight['matrix']=objMatrix
+                print(objLight)
+                arrLights.append(objLight)
+                
+        bpy.ops.object.editmode_toggle()
+        for intLight,objLight in enumerate(arrLights):
+            objNewLight=bpy.ops.object.light_add(type='AREA', radius=1, align='WORLD', location=objLight['location'])
+            #  set the rotation the light in the direction of the normal
+            context.object.matrix_world=objLight['matrix']
+            #bpy.context.object.rotation_mode = 'QUATERNION'
+            #bpy.context.object.rotation_quaternion = objLight['direction'].to_track_quat('Z','Y')
+            #bpy.context.object.scale( objLight['scale']['x'],objLight['scale']['y'],objLight['scale']['z'] )
+            bpy.ops.transform.resize(value=(objLight['scale']['x']/1, objLight['scale']['y']/1, objLight['scale']['z']/1), orient_type='GLOBAL', orient_matrix=((1, 0, 0), (0, 1, 0), (0, 0, 1)), 
+            orient_matrix_type='GLOBAL', constraint_axis=(False, True, False), mirror=True, use_proportional_edit=False, proportional_edit_falloff='SMOOTH', proportional_size=1, use_proportional_connected=False, use_proportional_projected=False)
         return {"FINISHED"}
-
-
-class MappyPanel(bpy.types.Panel):
+                                
+class LightsPanel(bpy.types.Panel):
     """Creates a Panel in the Object properties window"""
-    bl_label = "Mappy"
-    bl_category = "Mappy"
-    bl_idname = "Mappy_Panel"
+    bl_label = "Light"
+    bl_category = "Lights"
+    bl_idname = "Light_Panel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
 
@@ -144,25 +144,21 @@ class MappyPanel(bpy.types.Panel):
         layout = self.layout
         #start with first camera found
         row = layout.row()
-        row.label(text="Mappy is intended to be the 3rd step in an FSpy workflow")
+        row.label(text="Create area lights from faces")
         row = layout.row()
-        row.label(text="1. Import FSpy projects with the fspy import addon")
+        row.label(text="1. Selected faces in edit mode")
         row = layout.row()
-        row.label(text="2. Model your objects to fit the images")
-        row = layout.row()
-        row.label(text="3. Use this addon to project / taxture map onto the selected objects")
-        layout.operator("mappy.go",text = 'Map fspy image to all selected')
+        row.label(text="2. Run the tool")
+        layout.operator("lights.go",text = 'Create area lights')
                                 
 def register():
-    bpy.utils.register_class(MappyOp)
-    bpy.utils.register_class(MappyPanel)
+    bpy.utils.register_class(LightsOp)
+    bpy.utils.register_class(LightsPanel)
 
 
 def unregister():
-    bpy.utils.unregister_class(MappyOp)
-    bpy.utils.unregister_class(MappyPanel)
-
+    bpy.utils.unregister_class(LightsOp)
+    bpy.utils.unregister_class(LightsPanel)
 
 if __name__ == "__main__":
     register()
-    
